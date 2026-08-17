@@ -1,0 +1,12 @@
+# rv
+
+> Reversible shell actions — git-tree snapshots, append-only journal, per-path undo. https://github.com/DrVelvetFog/reversible
+
+- [README](README.md)
+- [SPEC](SPEC.md)
+
+## Verified examples
+
+- [manifest](examples/manifest.json): runnable examples for rv
+- [attestations](examples/attest.json): in-toto Statements — which version each example last ran against, exit code, output digest
+- Check before use: `xv check --rerun` (https://github.com/DrVelvetFog/verified-examples)

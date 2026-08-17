@@ -1,0 +1,16 @@
+{
+  "package": "rv",
+  "version_cmd": "cat VERSION",
+  "examples": [
+    {
+      "id": "quickstart",
+      "path": "examples/quickstart.sh",
+      "command": "bash examples/quickstart.sh"
+    },
+    {
+      "id": "test-suite",
+      "path": "test.sh",
+      "command": "bash test.sh | tail -1 | sed 's/ (repo:.*//'"
+    }
+  ]
+}

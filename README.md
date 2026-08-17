@@ -5,6 +5,7 @@ Snapshots the git worktree as a content-addressed tree before/after each action,
 
 ```bash
 ./test.sh                     # 15 checks in a throwaway repo
+bash examples/quickstart.sh   # verified example (see llms.txt / examples/attest.json)
 rv wrap -- 'rm -rf build && make'   # any shell
 rv log                        # #seq  ts  [*changed][H head-moved]  kind  out-of-scope  cmd
 rv show 12                    # exactly what undo would do (dry-run)

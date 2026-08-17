@@ -1,0 +1,65 @@
+{
+ "schema": "verified-examples/v0",
+ "attestations": [
+  {
+   "_type": "https://in-toto.io/Statement/v1",
+   "subject": [
+    {
+     "name": "examples/quickstart.sh",
+     "digest": {
+      "sha256": "aed8fb165ccc41c15990d29ac41902930dea327537c70732f1e706b776e409c5"
+     }
+    }
+   ],
+   "predicateType": "https://github.com/DrVelvetFog/verified-examples/v0",
+   "predicate": {
+    "id": "quickstart",
+    "package": "rv",
+    "version": "0.1.0",
+    "command": "bash examples/quickstart.sh",
+    "exit": 0,
+    "stdout": {
+     "sha256": "9b3abda77d0e859af024052931e8b061b0a8953737caf370633ebb6cf2e12982",
+     "bytes": 165,
+     "tail": "after action: a.txt exists? no, b.txt exists? yes\n  D a.txt\n  A b.txt\nundo #1: 2 restored, 0 skipped -> pre tree REACHED\nafter undo:   a.txt=hello, b.txt exists? no\n"
+    },
+    "ran_at": "2026-08-17T14:31:19Z",
+    "runner": {
+     "os": "darwin",
+     "python": "3.14.6",
+     "ci": false
+    }
+   }
+  },
+  {
+   "_type": "https://in-toto.io/Statement/v1",
+   "subject": [
+    {
+     "name": "test.sh",
+     "digest": {
+      "sha256": "73f2f80fdddb64b604303f773fefd7a4ae001302d70fb78ca6f70ca20f3d076a"
+     }
+    }
+   ],
+   "predicateType": "https://github.com/DrVelvetFog/verified-examples/v0",
+   "predicate": {
+    "id": "test-suite",
+    "package": "rv",
+    "version": "0.1.0",
+    "command": "bash test.sh | tail -1 | sed 's/ (repo:.*//'",
+    "exit": 0,
+    "stdout": {
+     "sha256": "415f3184b1f56baca6f3d6c4ad911b3c5ae03b8c6890311cbe8eb976a7dd7b27",
+     "bytes": 16,
+     "tail": "pass=15 fail=0 \n"
+    },
+    "ran_at": "2026-08-17T14:31:23Z",
+    "runner": {
+     "os": "darwin",
+     "python": "3.14.6",
+     "ci": false
+    }
+   }
+  }
+ ]
+}
