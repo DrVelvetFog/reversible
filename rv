@@ -15,7 +15,7 @@ Commands
   rv undo <seq> [--dry-run] [--force]
   rv hook-pre                Claude Code PreToolUse adapter (reads hook JSON on stdin)
   rv hook-post               Claude Code PostToolUse adapter
-  rv wrap -- <cmd...>        run a command with pre/post snapshots (any shell)
+  rv wrap [--actor A] -- <cmd...>   run a command with pre/post snapshots (any shell)
 
 stdlib only. Never blocks the wrapped action: adapter errors exit 0 silently.
 """
@@ -219,6 +219,10 @@ def cmd_undo(repo, args):
 
 
 def cmd_wrap(repo, args):
+    actor = {"tool": "shell", "adapter": "rv-wrap"}
+    if len(args) >= 2 and args[0] == "--actor":       # rv wrap --actor tonyai/qwen -- cmd
+        actor = {"tool": args[1], "adapter": "rv-wrap"}
+        args = args[2:]
     if args and args[0] == "--":
         args = args[1:]
     cmd = " ".join(args)
@@ -226,8 +230,8 @@ def cmd_wrap(repo, args):
     rc = subprocess.call(cmd, shell=True, cwd=os.getcwd())
     post, hpo = repo.snap(), repo.head()
     rec = repo.append(make_record(repo, {"kind": "shell", "command": cmd, "exit": rc},
-                                  {"tool": "shell", "adapter": "rv-wrap"}, pre, post, hp, hpo))
-    print(f"rv: #{rec['seq']} {'changed' if rec['changed'] else 'no change'}", file=sys.stderr)
+                                  actor, pre, post, hp, hpo))
+    print(f"rv: #{rec['seq']} {'changed' if rec['changed'] else 'no-change'} root={repo.root}", file=sys.stderr)
     sys.exit(rc)
 
 
