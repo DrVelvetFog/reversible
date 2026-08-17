@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""rv — reversible shell actions, journaled.
+
+Snapshots the git worktree (tracked + untracked, honoring .gitignore) as a
+content-addressed git *tree object* before and after an action, appends an
+append-only NDJSON record, and can restore the pre-state byte-exactly.
+
+Storage: git itself. No new format. Trees are pinned under refs/rv/ so gc
+never prunes them. Journal lives at $GIT_DIR/rv/journal.ndjson.
+
+Commands
+  rv snap                    print current worktree tree hash (pins it)
+  rv log [-n N]              list journal
+  rv show <seq>              what the action changed == what undo would do (dry-run)
+  rv undo <seq> [--dry-run] [--force]
+  rv hook-pre                Claude Code PreToolUse adapter (reads hook JSON on stdin)
+  rv hook-post               Claude Code PostToolUse adapter
+  rv wrap -- <cmd...>        run a command with pre/post snapshots (any shell)
+
+stdlib only. Never blocks the wrapped action: adapter errors exit 0 silently.
+"""
+import json, os, re, subprocess, sys, time
+
+SCHEMA = "reversible/v0"
+
+# Commands whose effects plausibly escape the worktree. We flag, never claim "none".
+OUT_OF_SCOPE = re.compile(
+    r"\b(curl|wget|ssh|scp|rsync|git\s+push|npm\s+publish|pip\s+install|brew|"
+    r"kill|launchctl|systemctl|docker|kubectl|gh\s+(pr|issue|api|release)|"
+    r"netlify|render|sudo)\b")
+
+
+def git(*args, cwd=None, env=None, check=True, input=None):
+    e = dict(os.environ)
+    if env:
+        e.update(env)
+    r = subprocess.run(["git", *args], cwd=cwd, env=e, capture_output=True,
+                       text=True, input=input)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+class Repo:
+    def __init__(self, cwd):
+        self.root = git("rev-parse", "--show-toplevel", cwd=cwd)
+        self.gitdir = git("rev-parse", "--absolute-git-dir", cwd=cwd)
+        self.rvdir = os.path.join(self.gitdir, "rv")
+        os.makedirs(os.path.join(self.rvdir, "pending"), exist_ok=True)
+        self.journal = os.path.join(self.rvdir, "journal.ndjson")
+        self.index = os.path.join(self.rvdir, "index")  # persistent -> incremental adds
+
+    # -- snapshot -----------------------------------------------------------
+    def snap(self):
+        env = {"GIT_INDEX_FILE": self.index}
+        git("add", "-A", "--", ".", cwd=self.root, env=env)
+        tree = git("write-tree", cwd=self.root, env=env)
+        git("update-ref", f"refs/rv/trees/{tree}", tree, cwd=self.root)  # pin
+        return tree
+
+    def head(self):
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root,
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    # -- journal ------------------------------------------------------------
+    def records(self):
+        if not os.path.exists(self.journal):
+            return []
+        with open(self.journal) as f:
+            return [json.loads(l) for l in f if l.strip()]
+
+    def append(self, rec):
+        rec["seq"] = len(self.records()) + 1
+        rec["schema"] = SCHEMA
+        with open(self.journal, "a") as f:
+            f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+        return rec
+
+    def get(self, seq):
+        for r in self.records():
+            if r["seq"] == seq:
+                return r
+        raise SystemExit(f"rv: no record seq={seq}")
+
+    # -- diff / restore -----------------------------------------------------
+    def changes(self, pre, post):
+        """[(status, path)] with status in A/M/D (no rename detection: exact)."""
+        out = git("diff-tree", "-r", "--name-status", "--no-renames", pre, post,
+                  cwd=self.root)
+        return [tuple(l.split("\t", 1)) for l in out.splitlines() if l]
+
+    def blob_in_tree(self, tree, path):
+        r = subprocess.run(["git", "rev-parse", f"{tree}:{path}"], cwd=self.root,
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+
+    def blob_on_disk(self, path):
+        p = os.path.join(self.root, path)
+        if not os.path.exists(p):
+            return None
+        return git("hash-object", "--", path, cwd=self.root)
+
+    def restore(self, pre, post, dry_run=False, force=False):
+        """Restore only the paths this action touched, to their pre-state.
+        Conflict = disk no longer matches post (someone edited since). Skip unless --force."""
+        plan, conflicts = [], []
+        for status, path in self.changes(pre, post):
+            if not force and self.blob_on_disk(path) != self.blob_in_tree(post, path):
+                conflicts.append((status, path))
+                continue
+            plan.append((status, path))
+        if not dry_run and plan:
+            tmp = self.index + ".restore"
+            env = {"GIT_INDEX_FILE": tmp}
+            git("read-tree", pre, cwd=self.root, env=env)
+            to_checkout = [p for s, p in plan if s in ("M", "D")]
+            if to_checkout:
+                git("checkout-index", "-f", "--", *to_checkout, cwd=self.root, env=env)
+            for s, p in plan:
+                if s == "A":
+                    fp = os.path.join(self.root, p)
+                    if os.path.lexists(fp):
+                        os.remove(fp)
+                    d = os.path.dirname(fp)
+                    try:  # prune dirs the action created, stop at first non-empty
+                        while d != self.root and not os.listdir(d):
+                            os.rmdir(d); d = os.path.dirname(d)
+                    except OSError:
+                        pass
+            os.remove(tmp)
+        return plan, conflicts
+
+
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def make_record(repo, action, actor, pre, post, head_pre, head_post):
+    changed = pre != post
+    cmd = action.get("command", "")
+    return {
+        "ts": now(),
+        "actor": actor,
+        "action": action,
+        "scope": {"kind": "git-worktree", "root": repo.root, "excludes": "gitignore"},
+        "pre": {"tree": f"git-sha1:{pre}", "head": head_pre, "captured": True},
+        "post": {"tree": f"git-sha1:{post}", "head": head_post},
+        "changed": changed,
+        "head_moved": head_pre != head_post,
+        "reversibility": {
+            "tier": "S",                       # S=snapshot-restorable (within scope)
+            "method": "tree-restore",
+            "coverage": "scope-only",          # RECOMPUTED for the worktree; nothing else
+            "out_of_scope_effects": "possible" if OUT_OF_SCOPE.search(cmd) else "unknown",
+        },
+    }
+
+
+def strip(t):
+    return t.split(":", 1)[1] if ":" in t else t
+
+
+# -- commands ---------------------------------------------------------------
+
+def cmd_snap(repo, _):
+    print(repo.snap())
+
+
+def cmd_log(repo, args):
+    n = int(args[args.index("-n") + 1]) if "-n" in args else 20
+    recs = repo.records()[-n:]
+    for r in recs:
+        kind = r["action"]["kind"]
+        label = r["action"].get("command") or f"undo of #{r['action'].get('of')}"
+        flags = ("*" if r["changed"] else " ") + ("H" if r.get("head_moved") else " ")
+        oos = r["reversibility"].get("out_of_scope_effects", "")
+        print(f"#{r['seq']:<4} {r['ts']} {flags} {kind:<5} {oos:<8} {label[:70]}")
+    if not recs:
+        print("rv: journal empty")
+
+
+def cmd_show(repo, args):
+    r = repo.get(int(args[0]))
+    pre, post = strip(r["pre"]["tree"]), strip(r["post"]["tree"])
+    print(json.dumps({k: r[k] for k in ("seq", "ts", "action", "reversibility")}, indent=1))
+    if r.get("head_moved"):
+        print(f"HEAD moved {r['pre']['head']} -> {r['post']['head']}  (NOT restored by undo; "
+              f"compensator: git reset --keep {r['pre']['head']})")
+    ch = repo.changes(pre, post)
+    print(f"worktree changes ({len(ch)}) — undo would reverse these:")
+    for s, p in ch:
+        print(f"  {s} {p}")
+    if not ch:
+        print("  (none)")
+
+
+def cmd_undo(repo, args):
+    seq = int(args[0]); dry = "--dry-run" in args; force = "--force" in args
+    r = repo.get(seq)
+    pre, post = strip(r["pre"]["tree"]), strip(r["post"]["tree"])
+    cur = repo.snap(); head_pre = repo.head()
+    plan, conflicts = repo.restore(pre, post, dry_run=dry, force=force)
+    for s, p in plan:
+        print(f"{'would ' if dry else ''}{ {'A':'delete','M':'restore','D':'recreate'}[s] } {p}")
+    for s, p in conflicts:
+        print(f"SKIP (changed since #{seq}; use --force) {s} {p}")
+    if r.get("head_moved"):
+        print(f"note: HEAD moved during #{seq} and was NOT restored "
+              f"({r['pre']['head']} -> {r['post']['head']})")
+    if not dry:
+        after = repo.snap()
+        repo.append(make_record(repo, {"kind": "undo", "of": seq,
+                                       "skipped": [p for _, p in conflicts]},
+                                {"tool": "rv", "adapter": "cli"},
+                                cur, after, head_pre, repo.head()))
+        print(f"undo #{seq}: {len(plan)} restored, {len(conflicts)} skipped -> pre tree "
+              f"{'REACHED' if after == pre else 'not reached (conflicts/out-of-scope)'}")
+
+
+def cmd_wrap(repo, args):
+    if args and args[0] == "--":
+        args = args[1:]
+    cmd = " ".join(args)
+    pre, hp = repo.snap(), repo.head()
+    rc = subprocess.call(cmd, shell=True, cwd=os.getcwd())
+    post, hpo = repo.snap(), repo.head()
+    rec = repo.append(make_record(repo, {"kind": "shell", "command": cmd, "exit": rc},
+                                  {"tool": "shell", "adapter": "rv-wrap"}, pre, post, hp, hpo))
+    print(f"rv: #{rec['seq']} {'changed' if rec['changed'] else 'no change'}", file=sys.stderr)
+    sys.exit(rc)
+
+
+def hook_input():
+    try:
+        return json.load(sys.stdin)
+    except Exception:
+        return {}
+
+
+def cmd_hook_pre(_repo_unused, _):
+    h = hook_input()
+    if h.get("tool_name") != "Bash":
+        return
+    repo = Repo(h.get("cwd") or os.getcwd())
+    key = h.get("tool_use_id") or h.get("session_id") or "default"
+    pend = {"pre": repo.snap(), "head": repo.head(), "ts": now(),
+            "command": h.get("tool_input", {}).get("command", ""),
+            "session": h.get("session_id")}
+    with open(os.path.join(repo.rvdir, "pending", key), "w") as f:
+        json.dump(pend, f)
+
+
+def cmd_hook_post(_repo_unused, _):
+    h = hook_input()
+    if h.get("tool_name") != "Bash":
+        return
+    repo = Repo(h.get("cwd") or os.getcwd())
+    key = h.get("tool_use_id") or h.get("session_id") or "default"
+    pf = os.path.join(repo.rvdir, "pending", key)
+    if not os.path.exists(pf):
+        return
+    pend = json.load(open(pf)); os.remove(pf)
+    post = repo.snap()
+    action = {"kind": "shell", "command": pend["command"]}
+    resp = h.get("tool_response")
+    out = resp if isinstance(resp, str) else (resp or {}).get("stdout", "")
+    if isinstance(out, str) and out:  # digest of what the action printed — makes "ran" claims checkable
+        import hashlib
+        action["output"] = {"sha256": hashlib.sha256(out.encode()).hexdigest(),
+                            "bytes": len(out.encode()), "tail": out[-160:]}
+    repo.append(make_record(repo, action,
+                            {"tool": "Bash", "adapter": "claude-code-hook",
+                             "session": pend.get("session")},
+                            pend["pre"], post, pend["head"], repo.head()))
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__); return
+    cmd, args = sys.argv[1], sys.argv[2:]
+    if cmd in ("hook-pre", "hook-post"):
+        try:
+            {"hook-pre": cmd_hook_pre, "hook-post": cmd_hook_post}[cmd](None, args)
+        except RuntimeError as e:
+            if "not a git repository" in str(e):
+                return  # outside a repo: silent no-op (v0 scope)
+            with open(os.path.expanduser("~/.rv-hook-errors.log"), "a") as f:
+                f.write(f"{now()} {cmd}: {e}\n")
+        except Exception as e:  # never block the tool call
+            with open(os.path.expanduser("~/.rv-hook-errors.log"), "a") as f:
+                f.write(f"{now()} {cmd}: {e}\n")
+        return
+    try:
+        repo = Repo(os.getcwd())
+    except RuntimeError:
+        raise SystemExit("rv: not inside a git repository (v0 scope)")
+    fn = {"snap": cmd_snap, "log": cmd_log, "show": cmd_show, "undo": cmd_undo,
+          "wrap": cmd_wrap}.get(cmd)
+    if not fn:
+        raise SystemExit(f"rv: unknown command {cmd}")
+    fn(repo, args)
+
+
+if __name__ == "__main__":
+    main()
