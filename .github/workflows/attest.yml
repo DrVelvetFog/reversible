@@ -1,0 +1,16 @@
+# Source review coverage: for every revision that lands, a signed in-toto
+# attestation a stranger can recompute. https://github.com/DrVelvetFog/source-review-coverage
+name: attest
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+  id-token: write        # lets the workflow identity sign (rule R4)
+  pull-requests: read
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: DrVelvetFog/source-review-coverage@main
