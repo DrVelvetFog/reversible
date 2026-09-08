@@ -13,4 +13,4 @@ jobs:
   attest:
     runs-on: ubuntu-latest
     steps:
-      - uses: DrVelvetFog/source-review-coverage@main
+      - uses: DrVelvetFog/source-review-coverage@v1
