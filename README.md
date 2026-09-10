@@ -3,6 +3,8 @@
 Undo for the thing Claude Code's checkpointing explicitly doesn't cover: **files changed by shell commands.**
 Snapshots the git worktree as a content-addressed tree before/after each action, journals it, restores byte-exactly. Stdlib Python, git as the store. See [SPEC.md](SPEC.md).
 
+![rv restoring files an agent's `rm -rf` deleted](assets/demo.gif)
+
 ```bash
 ./test.sh                     # 15 checks in a throwaway repo
 bash examples/quickstart.sh   # verified example (see llms.txt / examples/attest.json)
