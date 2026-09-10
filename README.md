@@ -19,8 +19,8 @@ Add to `~/.claude/settings.json` (or a project's `.claude/settings.json`):
 ```json
 {
   "hooks": {
-    "PreToolUse":  [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/tonyjagodka/reversible/rv hook-pre" }] }],
-    "PostToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "/Users/tonyjagodka/reversible/rv hook-post" }] }]
+    "PreToolUse":  [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "/path/to/reversible/rv hook-pre" }] }],
+    "PostToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "/path/to/reversible/rv hook-post" }] }]
   }
 }
 ```
@@ -29,3 +29,11 @@ The hooks are silent, ~0.2 s per Bash call, no-op outside a git repo, and never 
 
 ## Limits (stated in every record, not hidden)
 gitignored files · anything outside the worktree · processes/network · `HEAD`/ref moves (flagged, compensator hinted, not auto-reversed).
+
+## Part of a stack
+
+rv is the undo layer of a small accountability toolkit for agent work, each piece usable alone:
+
+- **[source-review-coverage](https://github.com/DrVelvetFog/source-review-coverage)** — a one-line [GitHub Action](https://github.com/marketplace/actions/source-review-coverage) emitting signed, recomputable evidence that the code which shipped is the code a human approved. rv runs under it in CI.
+- **[ev — evidence tiers](https://github.com/DrVelvetFog/evidence-tier)** — every claim an agent makes labelled ran / read / told / recalled / inferred; "ran" claims resolve against the rv journal.
+- **[xv — verified examples](https://github.com/DrVelvetFog/verified-examples)** — documentation examples an agent can check instead of recall; rv's own examples are attested with it.
