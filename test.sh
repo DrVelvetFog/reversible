@@ -17,7 +17,7 @@ no(){ echo "  FAIL $1"; fail=$((fail+1)); }
 
 echo "1. shell action via hook adapter (simulated Claude Code hook JSON)"
 PRE=$("$RV" snap)
-CMD='rm a.txt; mv b.txt c.txt; echo new > d/dd/new.txt 2>/dev/null || (mkdir -p d/dd && echo new > d/dd/new.txt); echo more >> e.txt; rm u.txt; rm -r keep'
+CMD='rm a.txt; mv b.txt c.txt; mkdir -p d/dd && echo new > d/dd/new.txt; echo more >> e.txt; rm u.txt; rm -r keep'
 HOOK=$(printf '{"tool_name":"Bash","session_id":"s1","tool_use_id":"tu1","cwd":"%s","tool_input":{"command":%s}}' "$T" "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$CMD")")
 echo "$HOOK" | "$RV" hook-pre
 bash -c "$CMD"
