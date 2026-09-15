@@ -6,6 +6,8 @@ Snapshots the git worktree as a content-addressed tree before/after each action,
 ![rv restoring files an agent's `rm -rf` deleted](assets/demo.gif)
 
 ```bash
+git clone https://github.com/DrVelvetFog/reversible && cd reversible
+export PATH="$PWD:$PATH"      # rv is a single file; no install step
 ./test.sh                     # 15 checks in a throwaway repo
 bash examples/quickstart.sh   # verified example (see llms.txt / examples/attest.json)
 rv wrap [--actor NAME] -- 'rm -rf build && make'   # any shell; reports `rv: #N changed|no-change root=…` on stderr
