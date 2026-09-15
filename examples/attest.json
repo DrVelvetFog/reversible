@@ -23,7 +23,7 @@
      "bytes": 165,
      "tail": "after action: a.txt exists? no, b.txt exists? yes\n  D a.txt\n  A b.txt\nundo #1: 2 restored, 0 skipped -> pre tree REACHED\nafter undo:   a.txt=hello, b.txt exists? no\n"
     },
-    "ran_at": "2026-08-17T14:59:27Z",
+    "ran_at": "2026-09-15T12:32:12Z",
     "runner": {
      "os": "darwin",
      "python": "3.14.6",
@@ -37,7 +37,7 @@
     {
      "name": "test.sh",
      "digest": {
-      "sha256": "73f2f80fdddb64b604303f773fefd7a4ae001302d70fb78ca6f70ca20f3d076a"
+      "sha256": "64471d36a7bf4c95d401a93482261eb25131b8a466bc48c80bfc40104e9a181b"
      }
     }
    ],
@@ -53,7 +53,7 @@
      "bytes": 16,
      "tail": "pass=15 fail=0 \n"
     },
-    "ran_at": "2026-08-17T14:59:31Z",
+    "ran_at": "2026-09-15T12:32:16Z",
     "runner": {
      "os": "darwin",
      "python": "3.14.6",
