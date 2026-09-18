@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reversible-shell"
+version = "0.1.1"
+description = "Undo for the file effects of shell commands, journaled."
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Antoni Jagodka", email = "tjagodka@gmail.com" }]
+keywords = ["supply-chain", "provenance", "in-toto", "attestation", "evidence"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DrVelvetFog/reversible"
+Source = "https://github.com/DrVelvetFog/reversible"
+Specification = "https://github.com/DrVelvetFog/reversible/blob/main/SPEC.md"
+
+[project.scripts]
+rv = "reversible_shell:main"
+
+# The tool is a single stdlib-only file named `rv` at the repository root, kept
+# executable so `./rv` works from a clone. force-include ships that exact file as
+# the module `reversible_shell` in the wheel, so the published package and the
+# repository never drift apart and nothing needed moving to package it.
+[tool.hatch.build.targets.wheel.force-include]
+"rv" = "reversible_shell.py"
+
+[tool.hatch.build.targets.sdist]
+include = ["rv", "SPEC.md", "README.md", "LICENSE", "examples/", "pyproject.toml"]
