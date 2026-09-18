@@ -1,0 +1,49 @@
+# Publish to PyPI with a Trusted Publisher: PyPI trusts this workflow's own
+# OIDC identity, so no API token exists to leak, expire, or be copied off a
+# laptop. The same argument as attest.yml -- a workflow identity, not a
+# developer key -- applied to distribution instead of signing.
+#
+# Build and publish are separate jobs on purpose. Only `publish` holds
+# id-token: write, and it never checks out the repository: it publishes exactly
+# the files `build` produced and nothing it could have rebuilt differently.
+#
+# Releasing: publish a GitHub Release. Nothing uploads on a push to main.
+# Version comes from pyproject.toml, and PyPI refuses a version it already has,
+# so bump it there before tagging.
+name: publish
+on:
+  release:
+    types: [published]
+
+permissions: {}          # nothing by default; each job takes only what it needs
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Build sdist and wheel
+        run: pipx run build
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/reversible-shell
+    permissions:
+      id-token: write      # mandatory for trusted publishing; this job's only power
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      # Signs each distribution and attaches a PEP 740 provenance attestation,
+      # which is on by default. Left on deliberately.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
